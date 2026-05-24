@@ -293,6 +293,29 @@ function Home({ setSection, progress }) {
         ))}
       </div>
 
+      {/* Feedback CTA */}
+      <div style={{ ...S.card, background: "linear-gradient(135deg, #EBF2FB, #F0F7FF)", border: "1px solid #BFDBFE", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 32, flexShrink: 0 }}>📬</div>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: ACCENT_DARK, marginBottom: 4 }}>Share Your Feedback</div>
+            <p style={{ margin: 0, fontSize: 13, color: "#475569", lineHeight: 1.6 }}>
+              Help us improve PsychAI Tutor by sharing your feedback.
+            </p>
+          </div>
+          <a
+            href="https://forms.gle/qybqezChghEg9Cak9"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, background: ACCENT, color: "#fff", borderRadius: 10, padding: "10px 20px", textDecoration: "none", fontWeight: 600, fontSize: 13.5, fontFamily: "inherit", flexShrink: 0, boxShadow: "0 2px 8px rgba(30,95,173,.25)", transition: "background .15s" }}
+            onMouseEnter={e => e.currentTarget.style.background = ACCENT_DARK}
+            onMouseLeave={e => e.currentTarget.style.background = ACCENT}
+          >
+            <span>📝</span> Provide Feedback
+          </a>
+        </div>
+      </div>
+
       {/* Disclaimer */}
       <div style={{ ...S.card, background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
         <span style={{ fontSize: 12, color: "#64748b" }}>⚠️ <strong>Disclaimer:</strong> For educational purposes only. All cases use fictional, non-identifiable information. Clinical decisions must not be based solely on AI output.</span>
@@ -4174,6 +4197,22 @@ function Sidebar({ section, setSection, progress }) {
         })}
       </nav>
 
+      {/* Feedback button */}
+      <div style={{ padding: "10px 12px 0" }}>
+        <a
+          href="https://forms.gle/qybqezChghEg9Cak9"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.18)", borderRadius: 9, padding: "9px 12px", textDecoration: "none", color: "rgba(255,255,255,.85)", fontFamily: "inherit", fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "background .15s" }}
+          onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,.18)"}
+          onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,.1)"}
+        >
+          <span style={{ fontSize: 16 }}>📝</span>
+          <span style={{ flex: 1 }}>Provide Feedback</span>
+          <span style={{ fontSize: 11, opacity: 0.5 }}>↗</span>
+        </a>
+      </div>
+
       {/* Progress mini-card */}
       <div style={{ padding: "14px 14px 20px", borderTop: "1px solid rgba(255,255,255,.1)" }}>
         <div style={{ fontSize: 11, color: "rgba(255,255,255,.5)", marginBottom: 6, letterSpacing: .5, textTransform: "uppercase" }}>Overall Progress</div>
@@ -4204,6 +4243,16 @@ function BottomNav({ section, setSection }) {
           </button>
         );
       })}
+      {/* Feedback external link tab */}
+      <a
+        href="https://forms.gle/qybqezChghEg9Cak9"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "8px 2px", color: "#94a3b8", textDecoration: "none", gap: 2 }}
+      >
+        <span style={{ fontSize: 20 }}>📝</span>
+        <span style={{ fontSize: 9.5, letterSpacing: .2 }}>Feedback</span>
+      </a>
     </nav>
   );
 }
