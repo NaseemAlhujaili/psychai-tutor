@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { supabase } from "./supabaseClient.js";
 
 /* ── DESIGN TOKENS ── */
 const ACCENT       = "#1E5FAD";
@@ -3003,7 +3004,7 @@ const ACHIEVEMENTS = [
   { id: "ddx_builder",  label: "Diagnostician",      icon: "🔍", desc: "Built 3 differentials",              check: (p) => p.ddx.built >= 3 },
 ];
 
-function ProfileSection({ progress }) {
+function ProfileSection({ progress, user, onLogout }) {
   const totalMCQ = progress.mcq.total;
   const mcqPct   = totalMCQ ? Math.round((progress.mcq.correct / totalMCQ) * 100) : 0;
   const casesN   = progress.cases.completed.length;
@@ -3026,6 +3027,23 @@ function ProfileSection({ progress }) {
     <div className="fade-in">
       <h2 style={S.sectionTitle}>👤 My Progress</h2>
       <p style={S.sectionSub}>Track your progress, achievements, and performance across all modules.</p>
+
+      {/* User account card */}
+      {user ? (
+        <div style={{ ...S.card, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap", padding:"1rem 1.25rem", marginBottom:"1rem", background:"#EFF6FF", border:"1px solid #BFDBFE" }}>
+          <div style={{ width:44, height:44, borderRadius:"50%", background:ACCENT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>👤</div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontWeight:700, fontSize:14, color:ACCENT_DARK }}>{user.email}</div>
+            <div style={{ fontSize:12, color:"#64748b", marginTop:2 }}>Signed in · Progress saved to your account</div>
+          </div>
+          <button onClick={onLogout} style={{ ...S.btn("outline"), padding:"7px 16px", fontSize:13 }}>Sign Out</button>
+        </div>
+      ) : (
+        <div style={{ ...S.card, background:"#FEF3C7", border:"1px solid #FDE68A", padding:"0.875rem 1.25rem", marginBottom:"1rem", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+          <span style={{ fontSize:18 }}>🔒</span>
+          <span style={{ fontSize:13, color:"#92400E", flex:1 }}>Log in to save your progress across sessions and access your personal analytics.</span>
+        </div>
+      )}
 
       {/* Profile card */}
       <div style={{ ...S.card, background: `linear-gradient(135deg, ${ACCENT_DARK} 0%, #1E5FAD 100%)`, color: "#fff", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
@@ -3738,89 +3756,92 @@ function AnalyticsDashboard({ progress }) {
 }
 
 
-function FeedbackSection() {
-  const [ratings, setRatings] = useState({ overall: 0, usefulness: 0, osce: 0, cases: 0, mse: 0, ddx: 0, mcq: 0, easeOfUse: 0 });
-  const [selectedTags, setSelectedTags] = useState([]);
-  const [freeText, setFreeText] = useState("");
-  const [role, setRole] = useState("");
-  const [wouldRecommend, setWouldRecommend] = useState(null);
-  const [submitted, setSubmitted] = useState(false);
-  const [pastFeedbacks, setPastFeedbacks] = useState([]);
-  const [showHistory, setShowHistory] = useState(false);
+function FeedbackSection({ user }) {
+  const [easeOfUse, setEaseOfUse]           = useState(0);
+  const [educationalValue, setEducationalValue] = useState(0);
+  const [osceUsefulness, setOsceUsefulness] = useState(0);
+  const [caseRealism, setCaseRealism]       = useState(0);
+  const [mostUseful, setMostUseful]         = useState("");
+  const [likedMost, setLikedMost]           = useState("");
+  const [suggestions, setSuggestions]       = useState("");
+  const [recommend, setRecommend]           = useState("");
+  const [submitted, setSubmitted]           = useState(false);
+  const [submitting, setSubmitting]         = useState(false);
+  const [error, setError]                   = useState("");
 
-  useEffect(() => {
-    setPastFeedbacks(loadFeedbacks());
-  }, []);
+  const SECTIONS = ["Clinical Cases","OSCE Simulator","MSE Trainer","DDx Builder","MCQ Practice","Reference","Analytics Dashboard","About"];
 
-  const totalRated = Object.values(ratings).filter(v => v > 0).length;
-  const avgRating = totalRated > 0
-    ? (Object.values(ratings).filter(v => v > 0).reduce((a, b) => a + b, 0) / totalRated).toFixed(1)
-    : 0;
-
-  function toggleTag(tag) {
-    setSelectedTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
-  }
-
-  function handleSubmit() {
-    if (ratings.overall === 0) return;
-    const entry = {
-      id: Date.now(),
-      date: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }),
-      time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
-      ratings,
-      avgRating: parseFloat(avgRating),
-      selectedTags,
-      freeText,
-      role,
-      wouldRecommend,
+  async function handleSubmit() {
+    if (!easeOfUse || !educationalValue) {
+      setError("Please rate at least Ease of Use and Educational Value before submitting."); return;
+    }
+    setSubmitting(true); setError("");
+    const payload = {
+      ease_of_use:       easeOfUse,
+      educational_value: educationalValue,
+      osce_usefulness:   osceUsefulness || null,
+      case_realism:      caseRealism    || null,
+      most_useful_section: mostUseful   || null,
+      liked_most:        likedMost      || null,
+      suggestions:       suggestions    || null,
+      recommend:         recommend      || null,
+      user_id:           user?.id       || null,
+      submitted_at:      new Date().toISOString(),
     };
-    const updated = [entry, ...loadFeedbacks()];
-    saveFeedbacks(updated);
-    setPastFeedbacks(updated);
+    const { error: sbErr } = await supabase.from("app_feedback").insert(payload);
+    setSubmitting(false);
+    if (sbErr) { setError("Could not save feedback. Please try again."); console.error(sbErr); return; }
     setSubmitted(true);
   }
 
-  function resetForm() {
-    setRatings({ overall: 0, usefulness: 0, osce: 0, cases: 0, mse: 0, ddx: 0, mcq: 0, easeOfUse: 0 });
-    setSelectedTags([]); setFreeText(""); setRole(""); setYearOfStudy(""); setWouldRecommend(null);
-    setSubmitted(false);
+  function reset() {
+    setEaseOfUse(0); setEducationalValue(0); setOsceUsefulness(0); setCaseRealism(0);
+    setMostUseful(""); setLikedMost(""); setSuggestions(""); setRecommend(""); setSubmitted(false); setError("");
   }
 
-  /* ── THANK YOU VIEW ── */
+  // ── Inline star picker ──────────────────────────────────────
+  function StarPick({ value, onChange, label, required }) {
+    return (
+      <div style={{ marginBottom:16 }}>
+        <div style={{ fontSize:13, fontWeight:600, color:"#374151", marginBottom:5 }}>
+          {label}{required && <span style={{ color:"#DC2626" }}> *</span>}
+        </div>
+        <div style={{ display:"flex", gap:6 }}>
+          {[1,2,3,4,5].map(n => (
+            <button key={n} onClick={() => onChange(n)} style={{
+              width:38, height:38, borderRadius:8, border:`2px solid ${n<=value?"#F59E0B":"#E8EEF4"}`,
+              background: n<=value?"#FEF3C7":"#fff", fontSize:18, cursor:"pointer",
+              transition:"all .12s", display:"flex", alignItems:"center", justifyContent:"center"
+            }}>⭐</button>
+          ))}
+          {value > 0 && <span style={{ fontSize:12, color:"#94a3b8", alignSelf:"center", marginLeft:4 }}>{["","Poor","Fair","Good","Very Good","Excellent"][value]}</span>}
+        </div>
+      </div>
+    );
+  }
+
+  /* ── SUCCESS VIEW ── */
   if (submitted) {
     return (
       <div className="fade-in">
-        <div style={{ ...S.card, textAlign: "center", padding: "3rem 2rem", borderTop: `4px solid ${TEAL}` }}>
-          <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
-          <h2 style={{ ...S.sectionTitle, textAlign: "center", marginBottom: 8 }}>Thank you for your feedback!</h2>
-          <p style={{ fontSize: 14, color: "#64748b", lineHeight: 1.7, maxWidth: 420, margin: "0 auto 1.5rem" }}>
-            Your feedback has been saved and will help improve PsychAI Tutor for all medical students. We appreciate you taking the time.
+        <div style={{ ...S.card, textAlign:"center", padding:"3rem 2rem", borderTop:`4px solid ${TEAL}` }}>
+          <div style={{ fontSize:56, marginBottom:16 }}>🎉</div>
+          <h2 style={{ ...S.sectionTitle, textAlign:"center", marginBottom:8 }}>Thank you for your feedback!</h2>
+          <p style={{ fontSize:14, color:"#64748b", lineHeight:1.7, maxWidth:420, margin:"0 auto 1.5rem" }}>
+            Your response has been saved{user ? " to your account" : ""}. It will help us improve PsychAI Tutor for all medical students.
           </p>
-          <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-            <div style={{ background: TEAL_LIGHT, borderRadius: 12, padding: "10px 20px", fontSize: 14 }}>
-              <div style={{ fontWeight: 700, color: TEAL, fontSize: 22 }}>{avgRating}</div>
-              <div style={{ fontSize: 12, color: "#475569" }}>Average rating</div>
+          <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
+            <div style={{ background:TEAL_LIGHT, borderRadius:12, padding:"10px 20px" }}>
+              <div style={{ fontWeight:700, color:TEAL, fontSize:22 }}>{educationalValue}/5</div>
+              <div style={{ fontSize:12, color:"#475569" }}>Educational value</div>
             </div>
-            <div style={{ background: ACCENT_LIGHT, borderRadius: 12, padding: "10px 20px", fontSize: 14 }}>
-              <div style={{ fontWeight: 700, color: ACCENT, fontSize: 22 }}>{totalRated}/8</div>
-              <div style={{ fontSize: 12, color: "#475569" }}>Features rated</div>
+            <div style={{ background:ACCENT_LIGHT, borderRadius:12, padding:"10px 20px" }}>
+              <div style={{ fontWeight:700, color:ACCENT, fontSize:22 }}>{easeOfUse}/5</div>
+              <div style={{ fontSize:12, color:"#475569" }}>Ease of use</div>
             </div>
-            {selectedTags.length > 0 && (
-              <div style={{ background: "#F3F4F6", borderRadius: 12, padding: "10px 20px", fontSize: 14 }}>
-                <div style={{ fontWeight: 700, color: "#374151", fontSize: 22 }}>{selectedTags.length}</div>
-                <div style={{ fontSize: 12, color: "#475569" }}>Suggestions made</div>
-              </div>
-            )}
           </div>
-          <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: "1.5rem", flexWrap: "wrap" }}>
-            <button onClick={resetForm} style={{ ...S.btn("outline") }}>Submit New Response</button>
-            <button onClick={() => setShowHistory(true)} style={S.btn()}>View All Feedback</button>
-          </div>
+          <button onClick={reset} style={{ ...S.btn("outline"), marginTop:"1.5rem" }}>Submit Another Response</button>
         </div>
-
-        {showHistory && pastFeedbacks.length > 0 && (
-          <FeedbackHistory entries={pastFeedbacks} onClear={() => { saveFeedbacks([]); setPastFeedbacks([]); setShowHistory(false); }} />
-        )}
       </div>
     );
   }
@@ -3829,152 +3850,100 @@ function FeedbackSection() {
   return (
     <div className="fade-in">
       <h2 style={S.sectionTitle}>⭐ Share Feedback</h2>
-      <p style={S.sectionSub}>Help improve PsychAI Tutor — rate your experience across all modules and share suggestions.</p>
+      <p style={S.sectionSub}>Help us improve PsychAI Tutor. Your feedback is saved directly to our database.</p>
 
-      {/* Progress indicator */}
-      {totalRated > 0 && (
-        <div style={{ ...S.card, padding: "0.875rem 1.25rem", marginBottom: "1rem", display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>Rating progress</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: ACCENT }}>{totalRated}/8 features rated</span>
-            </div>
-            <ProgressBar value={totalRated} max={8} color={ACCENT} height={6} />
-          </div>
-          <div style={{ textAlign: "center", background: avgRating >= 4 ? TEAL_LIGHT : avgRating >= 3 ? "#FEF3C7" : "#FEF2F2", borderRadius: 10, padding: "6px 14px" }}>
-            <div style={{ fontSize: 18, fontWeight: 800, color: avgRating >= 4 ? TEAL : avgRating >= 3 ? AMBER : "#DC2626" }}>{avgRating}</div>
-            <div style={{ fontSize: 10, color: "#64748b" }}>avg</div>
-          </div>
+      {!user && (
+        <div style={{ ...S.card, background:"#FEF3C7", border:"1px solid #FDE68A", padding:"0.875rem 1.25rem", marginBottom:"1rem", display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:18 }}>ℹ️</span>
+          <span style={{ fontSize:13, color:"#92400E" }}>You are submitting anonymously. <strong>Log in</strong> to link feedback to your account.</span>
         </div>
       )}
 
-      {/* ── Star ratings ── */}
-      <div style={{ ...S.card, padding: "1.25rem" }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Feature Ratings</div>
-        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>Rate each feature you've used. At minimum, please rate Overall Experience.</div>
-        {FEATURE_RATINGS.map(f => (
-          <RatingRow key={f.key} feature={f} value={ratings[f.key]} onChange={v => setRatings(r => ({ ...r, [f.key]: v }))} />
-        ))}
-        {ratings.overall === 0 && (
-          <div style={{ marginTop: 10, fontSize: 12, color: "#DC2626", fontWeight: 500 }}>* Overall rating is required to submit</div>
-        )}
+      {/* ── Ratings ── */}
+      <div style={{ ...S.card }}>
+        <div style={{ fontWeight:700, fontSize:14, color:"#1e293b", marginBottom:16 }}>Ratings</div>
+        <StarPick value={easeOfUse}         onChange={setEaseOfUse}         label="Ease of Use"           required />
+        <StarPick value={educationalValue}  onChange={setEducationalValue}  label="Educational Value"     required />
+        <StarPick value={osceUsefulness}    onChange={setOsceUsefulness}    label="OSCE Simulator Usefulness" />
+        <StarPick value={caseRealism}       onChange={setCaseRealism}       label="Case Realism" />
+      </div>
+
+      {/* ── Most useful section ── */}
+      <div style={{ ...S.card }}>
+        <div style={{ fontWeight:600, fontSize:14, color:"#1e293b", marginBottom:10 }}>Most Useful Section</div>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
+          {SECTIONS.map(s => (
+            <button key={s} onClick={() => setMostUseful(s === mostUseful ? "" : s)}
+              style={{ border:`1.5px solid ${s===mostUseful?ACCENT:"#E8EEF4"}`, background:s===mostUseful?ACCENT_LIGHT:"#fff",
+                color:s===mostUseful?ACCENT_DARK:"#64748b", borderRadius:99, padding:"5px 13px",
+                cursor:"pointer", fontSize:12.5, fontWeight:s===mostUseful?700:400, fontFamily:"inherit", transition:"all .15s" }}>
+              {s===mostUseful?"✓ ":""}{s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Liked most ── */}
+      <div style={{ ...S.card }}>
+        <label style={{ fontWeight:600, fontSize:14, color:"#1e293b", display:"block", marginBottom:8 }}>What did you like most?</label>
+        <textarea style={{ ...S.textarea, minHeight:80 }} value={likedMost} onChange={e => setLikedMost(e.target.value)}
+          placeholder="e.g. The OSCE simulator is incredibly realistic and great for exam prep…" />
+      </div>
+
+      {/* ── Suggestions ── */}
+      <div style={{ ...S.card }}>
+        <label style={{ fontWeight:600, fontSize:14, color:"#1e293b", display:"block", marginBottom:8 }}>Suggestions for improvement</label>
+        <textarea style={{ ...S.textarea, minHeight:80 }} value={suggestions} onChange={e => setSuggestions(e.target.value)}
+          placeholder="e.g. More advanced cases, video explanations, a revision mode…" />
       </div>
 
       {/* ── Recommend ── */}
       <div style={{ ...S.card }}>
-        <div style={{ fontWeight: 600, fontSize: 14, color: "#1e293b", marginBottom: 12 }}>
-          Would you recommend PsychAI Tutor to fellow medical students?
-        </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontWeight:600, fontSize:14, color:"#1e293b", marginBottom:12 }}>Would you recommend PsychAI Tutor?</div>
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
           {[
-            { val: "yes",     label: "👍 Yes, definitely",    bg: TEAL_LIGHT,   color: TEAL   },
-            { val: "maybe",   label: "🤔 Probably yes",       bg: "#FEF3C7",    color: AMBER  },
-            { val: "neutral", label: "😐 Not sure",           bg: "#F1F5F9",    color: "#64748b" },
-            { val: "no",      label: "👎 Probably not",       bg: "#FEF2F2",    color: "#DC2626" },
+            { val:"yes",     label:"👍 Yes, definitely",  bg:TEAL_LIGHT,  color:TEAL      },
+            { val:"probably",label:"🤔 Probably",          bg:"#FEF3C7",   color:AMBER     },
+            { val:"unsure",  label:"😐 Not sure",          bg:"#F1F5F9",   color:"#64748b" },
+            { val:"no",      label:"👎 Probably not",      bg:"#FEF2F2",   color:"#DC2626" },
           ].map(opt => (
-            <button key={opt.val} onClick={() => setWouldRecommend(opt.val)}
-              style={{ flex: 1, minWidth: 130, padding: "10px 14px", borderRadius: 10, border: `2px solid ${wouldRecommend === opt.val ? opt.color : "#E8EEF4"}`, background: wouldRecommend === opt.val ? opt.bg : "#fff", color: wouldRecommend === opt.val ? opt.color : "#64748b", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: wouldRecommend === opt.val ? 700 : 400, transition: "all .15s" }}>
+            <button key={opt.val} onClick={() => setRecommend(opt.val === recommend ? "" : opt.val)}
+              style={{ flex:1, minWidth:130, padding:"10px 14px", borderRadius:10,
+                border:`2px solid ${recommend===opt.val?opt.color:"#E8EEF4"}`,
+                background:recommend===opt.val?opt.bg:"#fff", color:recommend===opt.val?opt.color:"#64748b",
+                cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:recommend===opt.val?700:400, transition:"all .15s" }}>
               {opt.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* ── Improvement tags ── */}
-      <div style={{ ...S.card }}>
-        <div style={{ fontWeight: 600, fontSize: 14, color: "#1e293b", marginBottom: 4 }}>What would most improve the app?</div>
-        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>Select all that apply.</div>
-        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-          {IMPROVEMENT_TAGS.map(tag => {
-            const sel = selectedTags.includes(tag);
-            return (
-              <button key={tag} onClick={() => toggleTag(tag)}
-                style={{ border: `1.5px solid ${sel ? ACCENT : "#E8EEF4"}`, background: sel ? ACCENT_LIGHT : "#fff", color: sel ? ACCENT_DARK : "#64748b", borderRadius: 99, padding: "5px 13px", cursor: "pointer", fontSize: 12.5, fontWeight: sel ? 700 : 400, fontFamily: "inherit", transition: "all .15s" }}>
-                {sel ? "✓ " : "+ "}{tag}
-              </button>
-            );
-          })}
-        </div>
-        {selectedTags.length > 0 && (
-          <div style={{ marginTop: 10, fontSize: 12, color: ACCENT }}>
-            {selectedTags.length} suggestion{selectedTags.length !== 1 ? "s" : ""} selected
-          </div>
-        )}
-      </div>
-
-      {/* ── Free text ── */}
-      <div style={{ ...S.card }}>
-        <div style={{ fontWeight: 600, fontSize: 14, color: "#1e293b", marginBottom: 4 }}>Additional Comments</div>
-        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 10 }}>Any specific feedback, bugs, or suggestions? What did you find most and least useful?</div>
-        <textarea style={{ ...S.textarea, minHeight: 110 }} value={freeText} onChange={e => setFreeText(e.target.value)}
-          placeholder="e.g. The OSCE simulator is excellent for exam prep. I'd love more advanced cases. The DDx builder could suggest investigations more specifically…" />
-        {freeText.length > 0 && <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "right", marginTop: 4 }}>{freeText.length} characters</div>}
-      </div>
-
-      {/* ── Demographics (optional) ── */}
-      <div style={{ ...S.card }}>
-        <div style={{ fontWeight: 600, fontSize: 14, color: "#1e293b", marginBottom: 4 }}>About You <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 400 }}>(optional)</span></div>
-        <div style={{ flex: 1 }}>
-          <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 5 }}>Role</label>
-          <select value={role} onChange={e => setRole(e.target.value)}
-            style={{ ...S.input, background: "#fff", maxWidth: 340 }}>
-            <option value="">Select your role…</option>
-            <option>Medical Student</option>
-            <option>Intern</option>
-            <option>Junior Resident</option>
-            <option>Senior Resident</option>
-            <option>Specialist</option>
-            <option>Consultant</option>
-            <option>Nurse / Allied Health</option>
-            <option>Educator / Faculty</option>
-            <option>Other</option>
-          </select>
-        </div>
-      </div>
-
-      {/* ── Submit ── */}
-      <div style={{ ...S.card, background: ratings.overall > 0 ? ACCENT_LIGHT : "#F8FAFC", border: `1px solid ${ratings.overall > 0 ? "#BFDBFE" : "#E8EEF4"}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: "#1e293b", marginBottom: 3 }}>Ready to submit?</div>
-            <div style={{ fontSize: 13, color: "#64748b" }}>
-              {ratings.overall === 0
-                ? "Please rate Overall Experience to submit."
-                : `You've rated ${totalRated}/8 features. Your feedback will be saved locally.`}
-            </div>
-          </div>
-          <button onClick={handleSubmit} disabled={ratings.overall === 0}
-            style={{ ...S.btn(), padding: "11px 28px", fontSize: 15, opacity: ratings.overall === 0 ? 0.45 : 1, background: ratings.overall > 0 ? TEAL : "#94a3b8" }}>
-            Submit Feedback ✓
-          </button>
-        </div>
-      </div>
-
-      {/* ── Past feedback summary ── */}
-      {pastFeedbacks.length > 0 && (
-        <div style={{ ...S.card }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
-            onClick={() => setShowHistory(!showHistory)}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#1e293b" }}>📊 Past Submissions</div>
-              <div style={{ fontSize: 13, color: "#64748b" }}>{pastFeedbacks.length} previous feedback response{pastFeedbacks.length !== 1 ? "s" : ""} stored locally</div>
-            </div>
-            <span style={{ color: "#94a3b8", fontSize: 18 }}>{showHistory ? "▲" : "▼"}</span>
-          </div>
-          {showHistory && (
-            <FeedbackHistory entries={pastFeedbacks} onClear={() => { saveFeedbacks([]); setPastFeedbacks([]); setShowHistory(false); }} />
-          )}
+      {/* ── Error ── */}
+      {error && (
+        <div style={{ background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:9, padding:"10px 14px", marginBottom:"1rem", fontSize:13, color:"#DC2626" }}>
+          ⚠️ {error}
         </div>
       )}
 
-      <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "0.5rem" }}>
-        🔒 Feedback is stored locally in your browser. No data is sent to external servers.
+      {/* ── Submit ── */}
+      <div style={{ ...S.card, background:(easeOfUse&&educationalValue)?ACCENT_LIGHT:"#F8FAFC", border:`1px solid ${(easeOfUse&&educationalValue)?"#BFDBFE":"#E8EEF4"}` }}>
+        <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontWeight:700, fontSize:14, color:"#1e293b", marginBottom:3 }}>Ready to submit?</div>
+            <div style={{ fontSize:13, color:"#64748b" }}>
+              {(!easeOfUse||!educationalValue) ? "Please rate Ease of Use and Educational Value to submit." : "Your feedback will be saved to our database."}
+            </div>
+          </div>
+          <button onClick={handleSubmit} disabled={!easeOfUse||!educationalValue||submitting}
+            style={{ ...S.btn(), padding:"11px 28px", fontSize:15, opacity:(!easeOfUse||!educationalValue)?0.45:1, background:(easeOfUse&&educationalValue)?TEAL:"#94a3b8" }}>
+            {submitting ? "Saving…" : "Submit Feedback ✓"}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ── Feedback History sub-component ── */
 function FeedbackHistory({ entries, onClear }) {
   const allAvgs = entries.map(e => e.avgRating).filter(v => v > 0);
   const globalAvg = allAvgs.length ? (allAvgs.reduce((a, b) => a + b, 0) / allAvgs.length).toFixed(1) : "—";
@@ -4095,6 +4064,88 @@ function FeedbackHistory({ entries, onClear }) {
 /* ══════════════════════════════════════════
    GLOBAL SEARCH OVERLAY
 ══════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════
+   AUTH MODAL — Login / Sign Up
+══════════════════════════════════════════════════════════════════ */
+function AuthModal({ view, setView, onSuccess }) {
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState("");
+  const [message, setMessage]   = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true); setError(""); setMessage("");
+    if (view === "signup") {
+      const { error: err } = await supabase.auth.signUp({ email, password });
+      if (err) { setError(err.message); }
+      else { setMessage("Account created! Check your email to confirm, then log in."); }
+    } else {
+      const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+      if (err) { setError(err.message); }
+      else { onSuccess(); }
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(15,30,60,.55)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem" }}>
+      <div className="fade-in" style={{ background:"#fff", borderRadius:18, padding:"2.5rem 2rem", width:"100%", maxWidth:420, boxShadow:"0 24px 80px rgba(0,0,0,.22)" }}>
+        {/* Header */}
+        <div style={{ textAlign:"center", marginBottom:"1.75rem" }}>
+          <div style={{ fontSize:36, marginBottom:8 }}>🩺</div>
+          <div style={{ fontFamily:"Georgia,serif", fontSize:22, fontWeight:700, color:ACCENT_DARK }}>
+            <span style={{ color:ACCENT }}>Psych</span>AI Tutor
+          </div>
+          <div style={{ fontSize:14, color:"#64748b", marginTop:6 }}>
+            {view === "signup" ? "Create your free account" : "Welcome back"}
+          </div>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom:14 }}>
+            <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:5 }}>Email address</label>
+            <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
+              style={{ ...S.input, width:"100%" }} placeholder="you@university.edu" />
+          </div>
+          <div style={{ marginBottom:20 }}>
+            <label style={{ fontSize:12, fontWeight:600, color:"#374151", display:"block", marginBottom:5 }}>Password {view==="signup" && <span style={{ color:"#94a3b8", fontWeight:400 }}>(min. 6 characters)</span>}</label>
+            <input type="password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)}
+              style={{ ...S.input, width:"100%" }} placeholder="••••••••" />
+          </div>
+
+          {error   && <div style={{ background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:8, padding:"9px 12px", fontSize:13, color:"#DC2626", marginBottom:14 }}>⚠️ {error}</div>}
+          {message && <div style={{ background:"#F0FFF4", border:"1px solid #BBF7D0", borderRadius:8, padding:"9px 12px", fontSize:13, color:"#065F46", marginBottom:14 }}>✅ {message}</div>}
+
+          <button type="submit" disabled={loading}
+            style={{ ...S.btn(), width:"100%", padding:"13px", fontSize:15, justifyContent:"center", background:loading?"#94a3b8":ACCENT }}>
+            {loading ? "Please wait…" : view === "signup" ? "Create Account" : "Log In"}
+          </button>
+        </form>
+
+        {/* Toggle */}
+        <div style={{ textAlign:"center", marginTop:18, fontSize:13, color:"#64748b" }}>
+          {view === "signup" ? (
+            <>Already have an account? <button onClick={() => { setView("login"); setError(""); setMessage(""); }} style={{ background:"none", border:"none", color:ACCENT, fontWeight:700, cursor:"pointer", fontFamily:"inherit", fontSize:13 }}>Log In</button></>
+          ) : (
+            <>Don't have an account? <button onClick={() => { setView("signup"); setError(""); setMessage(""); }} style={{ background:"none", border:"none", color:ACCENT, fontWeight:700, cursor:"pointer", fontFamily:"inherit", fontSize:13 }}>Sign Up</button></>
+          )}
+        </div>
+
+        {/* Guest option */}
+        <div style={{ textAlign:"center", marginTop:10 }}>
+          <button onClick={onSuccess} style={{ background:"none", border:"none", color:"#94a3b8", cursor:"pointer", fontFamily:"inherit", fontSize:12 }}>
+            Continue without account →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SearchOverlay({ query, setQuery, onClose, setSection }) {
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -4162,9 +4213,8 @@ function SearchOverlay({ query, setQuery, onClose, setSection }) {
 /* ══════════════════════════════════════════
    SIDEBAR + BOTTOM NAV + APP SHELL
 ══════════════════════════════════════════ */
-function Sidebar({ section, setSection, progress }) {
+function Sidebar({ section, setSection, progress, user, onLogin, onSignup, onLogout }) {
   const totalMCQ = progress.mcq.total;
-  const mcqPct   = totalMCQ ? Math.round((progress.mcq.correct / totalMCQ) * 100) : 0;
   const overallPct = Math.round(
     ((progress.cases.completed.length / CASES.length) * 40) +
     ((progress.osce.completed.length / 5) * 20) +
@@ -4173,56 +4223,67 @@ function Sidebar({ section, setSection, progress }) {
   );
 
   return (
-    <aside className="sidebar" style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: SIDEBAR_W, background: ACCENT_DARK, display: "flex", flexDirection: "column", zIndex: 200, overflowY: "auto" }}>
+    <aside className="sidebar" style={{ position:"fixed", top:0, left:0, bottom:0, width:SIDEBAR_W, background:ACCENT_DARK, display:"flex", flexDirection:"column", zIndex:200, overflowY:"auto" }}>
       {/* Logo */}
-      <div style={{ padding: "22px 20px 18px", borderBottom: "1px solid rgba(255,255,255,.1)" }}>
-        <div style={{ fontFamily: "Georgia,serif", fontWeight: 700, fontSize: 18, color: "#fff", letterSpacing: .3 }}>
-          <span style={{ color: "#7EC8E3" }}>Psych</span>AI Tutor
+      <div style={{ padding:"22px 20px 18px", borderBottom:"1px solid rgba(255,255,255,.1)" }}>
+        <div style={{ fontFamily:"Georgia,serif", fontWeight:700, fontSize:18, color:"#fff", letterSpacing:.3 }}>
+          <span style={{ color:"#7EC8E3" }}>Psych</span>AI Tutor
         </div>
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,.5)", marginTop: 2, letterSpacing: .5 }}>PSYCHIATRY CLERKSHIP</div>
+        <div style={{ fontSize:11, color:"rgba(255,255,255,.5)", marginTop:2, letterSpacing:.5 }}>PSYCHIATRY CLERKSHIP</div>
       </div>
 
+      {/* User badge */}
+      {user ? (
+        <div style={{ padding:"10px 14px 8px", borderBottom:"1px solid rgba(255,255,255,.08)" }}>
+          <div style={{ fontSize:11, color:"rgba(255,255,255,.5)", marginBottom:3 }}>Signed in as</div>
+          <div style={{ fontSize:12.5, color:"#fff", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.email}</div>
+        </div>
+      ) : (
+        <div style={{ padding:"10px 12px 8px", borderBottom:"1px solid rgba(255,255,255,.08)", display:"flex", gap:6 }}>
+          <button onClick={onLogin}  style={{ flex:1, background:"rgba(255,255,255,.12)", border:"1px solid rgba(255,255,255,.2)", borderRadius:7, color:"#fff", fontFamily:"inherit", fontSize:12, fontWeight:600, padding:"7px 0", cursor:"pointer" }}>Log In</button>
+          <button onClick={onSignup} style={{ flex:1, background:"#7EC8E3", border:"none", borderRadius:7, color:ACCENT_DARK, fontFamily:"inherit", fontSize:12, fontWeight:700, padding:"7px 0", cursor:"pointer" }}>Sign Up</button>
+        </div>
+      )}
+
       {/* Nav */}
-      <nav style={{ flex: 1, padding: "10px 10px" }}>
+      <nav style={{ flex:1, padding:"10px 10px" }}>
         {NAV_ITEMS.map(item => {
           const active = section === item.id;
           return (
-            <button key={item.id} className={`nav-item${active ? " active" : ""}`} onClick={() => setSection(item.id)}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", background: active ? "rgba(255,255,255,.16)" : "transparent", border: "none", borderRadius: 9, cursor: "pointer", textAlign: "left", marginBottom: 2, color: active ? "#fff" : "rgba(255,255,255,.65)", fontFamily: "inherit", fontSize: 13.5, fontWeight: active ? 600 : 400, transition: "all .15s" }}>
-              <span style={{ fontSize: 16, width: 20, textAlign: "center" }}>{item.icon}</span>
-              <span style={{ flex: 1 }}>{item.label}</span>
-              {active && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#7EC8E3", flexShrink: 0 }} />}
+            <button key={item.id} className={`nav-item${active?" active":""}`} onClick={() => setSection(item.id)}
+              style={{ width:"100%", display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:active?"rgba(255,255,255,.16)":"transparent", border:"none", borderRadius:9, cursor:"pointer", textAlign:"left", marginBottom:2, color:active?"#fff":"rgba(255,255,255,.65)", fontFamily:"inherit", fontSize:13.5, fontWeight:active?600:400, transition:"all .15s" }}>
+              <span style={{ fontSize:16, width:20, textAlign:"center" }}>{item.icon}</span>
+              <span style={{ flex:1 }}>{item.label}</span>
+              {active && <span style={{ width:6, height:6, borderRadius:"50%", background:"#7EC8E3", flexShrink:0 }} />}
             </button>
           );
         })}
       </nav>
 
       {/* Feedback button */}
-      <div style={{ padding: "10px 12px 0" }}>
-        <a
-          href="https://forms.gle/qybqezChghEg9Cak9"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.18)", borderRadius: 9, padding: "9px 12px", textDecoration: "none", color: "rgba(255,255,255,.85)", fontFamily: "inherit", fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "background .15s" }}
-          onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,.18)"}
-          onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,.1)"}
-        >
-          <span style={{ fontSize: 16 }}>📝</span>
-          <span style={{ flex: 1 }}>Provide Feedback</span>
-          <span style={{ fontSize: 11, opacity: 0.5 }}>↗</span>
-        </a>
+      <div style={{ padding:"10px 12px 0" }}>
+        <button onClick={() => setSection("feedback")}
+          style={{ display:"flex", alignItems:"center", gap:9, width:"100%", background:"rgba(255,255,255,.1)", border:"1px solid rgba(255,255,255,.18)", borderRadius:9, padding:"9px 12px", color:"rgba(255,255,255,.85)", fontFamily:"inherit", fontSize:13, fontWeight:500, cursor:"pointer", transition:"background .15s" }}>
+          <span style={{ fontSize:16 }}>📝</span>
+          <span style={{ flex:1 }}>Provide Feedback</span>
+        </button>
       </div>
 
-      {/* Progress mini-card */}
-      <div style={{ padding: "14px 14px 20px", borderTop: "1px solid rgba(255,255,255,.1)" }}>
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,.5)", marginBottom: 6, letterSpacing: .5, textTransform: "uppercase" }}>Overall Progress</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <div style={{ flex: 1, background: "rgba(255,255,255,.15)", borderRadius: 99, height: 6, overflow: "hidden" }}>
-            <div style={{ width: `${overallPct}%`, background: "#7EC8E3", height: "100%", borderRadius: 99, transition: "width .5s ease" }} />
+      {/* Progress + logout */}
+      <div style={{ padding:"14px 14px 20px", borderTop:"1px solid rgba(255,255,255,.1)" }}>
+        <div style={{ fontSize:11, color:"rgba(255,255,255,.5)", marginBottom:6, letterSpacing:.5, textTransform:"uppercase" }}>Overall Progress</div>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+          <div style={{ flex:1, background:"rgba(255,255,255,.15)", borderRadius:99, height:6, overflow:"hidden" }}>
+            <div style={{ width:`${overallPct}%`, background:"#7EC8E3", height:"100%", borderRadius:99, transition:"width .5s ease" }} />
           </div>
-          <span style={{ fontSize: 12, color: "#7EC8E3", fontWeight: 700 }}>{overallPct}%</span>
+          <span style={{ fontSize:12, color:"#7EC8E3", fontWeight:700 }}>{overallPct}%</span>
         </div>
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,.4)" }}>{progress.cases.completed.length}/{CASES.length} cases · {progress.mcq.total} MCQs</div>
+        <div style={{ fontSize:11, color:"rgba(255,255,255,.4)", marginBottom: user ? 10 : 0 }}>{progress.cases.completed.length}/{CASES.length} cases · {progress.mcq.total} MCQs</div>
+        {user && (
+          <button onClick={onLogout} style={{ width:"100%", background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:7, color:"rgba(255,255,255,.6)", fontFamily:"inherit", fontSize:11.5, padding:"6px 0", cursor:"pointer", marginTop:4 }}>
+            Sign Out
+          </button>
+        )}
       </div>
     </aside>
   );
@@ -4257,16 +4318,25 @@ function BottomNav({ section, setSection }) {
   );
 }
 
-function TopBar({ setSearchOpen, section, setSection }) {
+function TopBar({ setSearchOpen, section, setSection, user, onLogin, onLogout }) {
   const current = NAV_ITEMS.find(n => n.id === section);
   return (
-    <header style={{ height: 56, background: "#fff", borderBottom: "1px solid #E8EEF4", display: "flex", alignItems: "center", padding: "0 1.25rem", gap: 12, position: "sticky", top: 0, zIndex: 150, boxShadow: "0 1px 4px rgba(0,0,0,.04)" }}>
-      <span style={{ fontSize: 20 }}>{current?.icon}</span>
-      <span style={{ fontWeight: 700, fontSize: 16, color: ACCENT_DARK, flex: 1, fontFamily: "Georgia,serif" }}>{current?.label}</span>
-      <button onClick={() => setSearchOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, background: "#F0F4F8", border: "1px solid #E8EEF4", borderRadius: 9, padding: "7px 14px", cursor: "pointer", color: "#64748b", fontSize: 13, fontFamily: "inherit" }}>
-        🔍 <span>Search topics, cases, drugs…</span>
-        <span style={{ background: "#E8EEF4", borderRadius: 5, padding: "1px 6px", fontSize: 11, color: "#94a3b8" }}>⌘K</span>
+    <header style={{ height:56, background:"#fff", borderBottom:"1px solid #E8EEF4", display:"flex", alignItems:"center", padding:"0 1.25rem", gap:12, position:"sticky", top:0, zIndex:150, boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>
+      <span style={{ fontSize:20 }}>{current?.icon}</span>
+      <span style={{ fontWeight:700, fontSize:16, color:ACCENT_DARK, flex:1, fontFamily:"Georgia,serif" }}>{current?.label}</span>
+      <button onClick={() => setSearchOpen(true)} style={{ display:"flex", alignItems:"center", gap:8, background:"#F0F4F8", border:"1px solid #E8EEF4", borderRadius:9, padding:"7px 14px", cursor:"pointer", color:"#64748b", fontSize:13, fontFamily:"inherit" }}>
+        🔍 <span className="hide-mobile">Search topics, cases, drugs…</span>
+        <span style={{ background:"#E8EEF4", borderRadius:5, padding:"1px 6px", fontSize:11, color:"#94a3b8" }}>⌘K</span>
       </button>
+      {user ? (
+        <button onClick={onLogout} style={{ display:"flex", alignItems:"center", gap:6, background:"#F1F5F9", border:"1px solid #E8EEF4", borderRadius:8, padding:"6px 12px", cursor:"pointer", color:"#64748b", fontSize:12, fontFamily:"inherit" }}>
+          <span>👤</span><span className="hide-mobile" style={{ maxWidth:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.email}</span><span style={{ fontSize:10, color:"#94a3b8" }}>Sign out</span>
+        </button>
+      ) : (
+        <button onClick={onLogin} style={{ display:"flex", alignItems:"center", gap:6, background:ACCENT, border:"none", borderRadius:8, padding:"7px 14px", cursor:"pointer", color:"#fff", fontSize:13, fontWeight:600, fontFamily:"inherit" }}>
+          Log In
+        </button>
+      )}
     </header>
   );
 }
@@ -4483,62 +4553,80 @@ function AboutPage() {
           ))}
         </div>
       </div>
-
-      {/* ── Professional Footer ── */}
-      <footer style={{ marginTop: "2rem", borderTop: "1px solid #E8EEF4", background: "#fff" }}>
-        {/* Disclaimer bar */}
-        <div style={{ background: "#FEF3C7", borderBottom: "1px solid #FDE68A", padding: "10px 1.5rem", display: "flex", alignItems: "flex-start", gap: 10 }}>
-          <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>⚠️</span>
-          <p style={{ margin: 0, fontSize: 12.5, color: "#92400E", lineHeight: 1.6 }}>
-            <strong>Educational Use Only.</strong> PsychAI Tutor is designed for medical education and exam preparation. It does not provide clinical diagnosis, treatment recommendations, or professional medical advice. All cases are fictional. Always consult qualified clinicians and current guidelines for patient care decisions.
-          </p>
-        </div>
-        {/* Footer body */}
-        <div style={{ padding: "1.25rem 1.5rem", display: "flex", flexWrap: "wrap", gap: "1.5rem", justifyContent: "space-between", alignItems: "flex-start" }}>
-          {/* Brand */}
-          <div style={{ minWidth: 180 }}>
-            <div style={{ fontFamily: "Georgia,serif", fontWeight: 700, fontSize: 17, color: ACCENT_DARK, marginBottom: 4 }}>
-              <span style={{ color: "#1E5FAD" }}>Psych</span>AI Tutor
-            </div>
-            <div style={{ fontSize: 11.5, color: "#64748b", lineHeight: 1.6, maxWidth: 220 }}>
-              AI-powered psychiatry education for medical students, junior doctors, and trainees preparing for clinical assessments.
-            </div>
-          </div>
-          {/* Alignment badges */}
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>Content Alignment</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {["DSM-5-TR", "ICD-11", "NICE Guidelines", "USMLE Step 1 & 2", "MRCPsych", "Maudsley Guidelines"].map(b => (
-                <span key={b} style={{ background: "#EBF2FB", color: ACCENT_DARK, borderRadius: 6, padding: "3px 9px", fontSize: 11, fontWeight: 600 }}>{b}</span>
-              ))}
-            </div>
-          </div>
-          {/* Info */}
-          <div style={{ fontSize: 11.5, color: "#94a3b8", textAlign: "right", minWidth: 160 }}>
-            <div style={{ fontWeight: 600, color: "#64748b", marginBottom: 4 }}>PsychAI Tutor v2.0</div>
-            <div>Powered by Claude AI (Anthropic)</div>
-            <div style={{ marginTop: 4 }}>© {new Date().getFullYear()} · For educational use only</div>
-            <div style={{ marginTop: 4, fontSize: 11, color: "#CBD5E1" }}>Not a substitute for clinical training</div>
-          </div>
-        </div>
-      </footer>
-
-    </div>
-  );
-}
-
-
 export default function App() {
-  const [section, setSection] = useState("home");
+  const [section, setSection]     = useState("home");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQ, setSearchQ] = useState("");
-  const [progress, setProgress] = useState({
+  const [searchQ, setSearchQ]     = useState("");
+  const [authView, setAuthView]   = useState(null); // "login" | "signup" | null
+  const [user, setUser]           = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [progress, setProgress]   = useState({
     cases: { completed: [] },
     osce:  { completed: [] },
     mse:   { explored: [] },
     ddx:   { built: 0 },
     mcq:   { correct: 0, total: 0 },
   });
+
+  // ── Auth listener ─────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) { setAuthView(null); loadProgress(session.user.id); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── Load progress from Supabase ───────────────────────────────
+  async function loadProgress(uid) {
+    const { data } = await supabase
+      .from("user_progress")
+      .select("*")
+      .eq("user_id", uid)
+      .single();
+    if (data) {
+      setProgress({
+        cases: { completed: data.cases_completed || [] },
+        osce:  { completed: data.osce_completed  || [] },
+        mse:   { explored:  data.mse_explored    || [] },
+        ddx:   { built: data.ddx_built           || 0  },
+        mcq:   { correct: data.mcq_correct       || 0, total: data.mcq_total || 0 },
+      });
+    }
+  }
+
+  // ── Persist progress to Supabase (debounced via useEffect) ────
+  const saveProgress = useCallback(async (p) => {
+    if (!user) return;
+    await supabase.from("user_progress").upsert({
+      user_id:         user.id,
+      cases_completed: p.cases.completed,
+      osce_completed:  p.osce.completed,
+      mse_explored:    p.mse.explored,
+      ddx_built:       p.ddx.built,
+      mcq_correct:     p.mcq.correct,
+      mcq_total:       p.mcq.total,
+      updated_at:      new Date().toISOString(),
+    }, { onConflict: "user_id" });
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const t = setTimeout(() => saveProgress(progress), 1200);
+    return () => clearTimeout(t);
+  }, [progress, user, saveProgress]);
+
+  // ── Logout ───────────────────────────────────────────────────
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProgress({ cases:{completed:[]}, osce:{completed:[]}, mse:{explored:[]}, ddx:{built:0}, mcq:{correct:0,total:0} });
+    setSection("home");
+  }
 
   /* Keyboard shortcut Cmd/Ctrl+K */
   useEffect(() => {
@@ -4550,27 +4638,44 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const props = { progress, setProgress, setSection };
+  if (authLoading) {
+    return (
+      <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background: BG }}>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>🩺</div>
+          <div style={{ fontFamily:"Georgia,serif", fontSize:22, color:ACCENT_DARK, fontWeight:700 }}>PsychAI Tutor</div>
+          <div style={{ marginTop:16, fontSize:13, color:"#94a3b8" }}>Loading…</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Auth modal overlay ────────────────────────────────────────
+  if (authView) {
+    return <AuthModal view={authView} setView={setAuthView} onSuccess={() => setAuthView(null)} />;
+  }
+
+  const props = { progress, setProgress, setSection, user };
 
   const renderSection = () => {
     switch (section) {
-      case "home":    return <Home {...props} />;
-      case "cases":   return <ClinicalCases {...props} />;
-      case "osce":    return <OSCESimulator {...props} />;
-      case "mse":     return <MSETrainer {...props} />;
-      case "ddx":     return <DDxBuilder {...props} />;
-      case "mcq":     return <MCQPractice {...props} />;
-      case "ref":     return <Reference />;
-      case "profile":  return <ProfileSection progress={progress} />;
-      case "analytics": return <AnalyticsDashboard progress={progress} />;
-      case "feedback": return <FeedbackSection />;
+      case "home":     return <Home {...props} onAuthPrompt={() => setAuthView("login")} />;
+      case "cases":    return <ClinicalCases {...props} />;
+      case "osce":     return <OSCESimulator {...props} />;
+      case "mse":      return <MSETrainer {...props} />;
+      case "ddx":      return <DDxBuilder {...props} />;
+      case "mcq":      return <MCQPractice {...props} />;
+      case "ref":      return <Reference />;
+      case "profile":  return <ProfileSection progress={progress} user={user} onLogout={handleLogout} />;
+      case "analytics": return <AnalyticsDashboard progress={progress} user={user} />;
+      case "feedback": return <FeedbackSection user={user} />;
       case "about":    return <AboutPage />;
-      default:         return <Home {...props} />;
+      default:         return <Home {...props} onAuthPrompt={() => setAuthView("login")} />;
     }
   };
 
   return (
-    <div style={{ fontFamily: "Inter,sans-serif", minHeight: "100vh", background: BG, color: "#1e293b" }}>
+    <div style={{ background: BG, minHeight: "100vh" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
@@ -4578,89 +4683,88 @@ export default function App() {
         ::-webkit-scrollbar{width:5px;height:5px;}
         ::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:99px;}
         ::-webkit-scrollbar-track{background:transparent;}
-
-        /* Cards & hover */
         .ch{transition:box-shadow .18s,transform .18s;}
         .ch:hover{box-shadow:0 8px 28px rgba(0,0,0,.10)!important;transform:translateY(-2px)!important;}
-
-        /* Page transitions */
         .fade-in{animation:fadeIn .28s ease both;}
         @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-
-        /* Sidebar nav */
         .nav-item{transition:background .15s;}
         .nav-item:hover{background:rgba(255,255,255,.12)!important;}
         .nav-item.active{background:rgba(255,255,255,.18)!important;}
-
-        /* Buttons */
         button{transition:all .15s;}
         button:active{transform:scale(.97);}
         button:disabled{opacity:.55;cursor:not-allowed;transform:none!important;}
-
-        /* Inputs */
-        input:focus,textarea:focus,select:focus{
-          border-color:#1E5FAD!important;
-          box-shadow:0 0 0 3px rgba(30,95,173,.15)!important;
-          outline:none!important;
-        }
+        input:focus,textarea:focus,select:focus{border-color:#1E5FAD!important;box-shadow:0 0 0 3px rgba(30,95,173,.15)!important;outline:none!important;}
         input,textarea,select{transition:border-color .15s,box-shadow .15s;}
-
-        /* Progress bars */
-        .progress-fill{transition:width .5s ease;}
-
-        /* Tab underlines */
-        .tab-active{border-bottom:2px solid #1E5FAD;}
-
-        /* Mobile grid helpers */
-        .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;}
-        .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;}
-
-        /* Responsive layout */
+        ::selection{background:rgba(30,95,173,.18);color:#1e293b;}
         @media(max-width:700px){
           .sidebar{display:none!important;}
           .bottom-nav{display:flex!important;}
           .main-wrap{margin-left:0!important;}
           .main-pad{padding-bottom:80px!important;}
-          .grid-2,.grid-3{grid-template-columns:1fr!important;}
           h2{font-size:18px!important;}
-          .hide-mobile{display:none!important;}
-          .full-mobile{width:100%!important;}
         }
         @media(min-width:701px){
           .bottom-nav{display:none!important;}
           .main-wrap{margin-left:${SIDEBAR_W}px;}
-          .show-mobile-only{display:none!important;}
         }
-
-        /* Print styles */
         @media print{
-          .sidebar,.bottom-nav,.top-bar{display:none!important;}
+          .sidebar,.bottom-nav{display:none!important;}
           .main-wrap{margin:0!important;}
         }
-
-        /* Selection */
-        ::selection{background:rgba(30,95,173,.18);color:#1e293b;}
       `}</style>
 
       {searchOpen && <SearchOverlay query={searchQ} setQuery={setSearchQ} onClose={() => setSearchOpen(false)} setSection={setSection} />}
 
-      <Sidebar section={section} setSection={setSection} progress={progress} />
+      <Sidebar section={section} setSection={setSection} progress={progress} user={user}
+               onLogin={() => setAuthView("login")} onSignup={() => setAuthView("signup")} onLogout={handleLogout} />
       <BottomNav section={section} setSection={setSection} />
 
       <div className="main-wrap" style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-        <TopBar setSearchOpen={setSearchOpen} section={section} setSection={setSection} />
+        <TopBar setSearchOpen={setSearchOpen} section={section} setSection={setSection}
+                user={user} onLogin={() => setAuthView("login")} onLogout={handleLogout} />
+
         <main className="main-pad fade-in" key={section} style={{ flex: 1, maxWidth: 900, margin: "0 auto", width: "100%", padding: "1.5rem 1.25rem 3rem" }}>
           {/* ── Educational disclaimer ribbon ── */}
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 9, background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 9, padding: "9px 14px", marginBottom: "1.25rem" }}>
-            <span style={{ fontSize: 15, flexShrink: 0, marginTop: 1 }}>🎓</span>
-            <span style={{ fontSize: 12, color: "#1E40AF", lineHeight: 1.55 }}>
+          <div style={{ display:"flex", alignItems:"flex-start", gap:9, background:"#EFF6FF", border:"1px solid #BFDBFE", borderRadius:9, padding:"9px 14px", marginBottom:"1.25rem" }}>
+            <span style={{ fontSize:15, flexShrink:0, marginTop:1 }}>🎓</span>
+            <span style={{ fontSize:12, color:"#1E40AF", lineHeight:1.55 }}>
               <strong>For medical education only.</strong> This app does not provide clinical diagnosis, treatment recommendations, or professional medical advice. All cases are fictional. Always consult qualified clinicians and current guidelines for patient care.
             </span>
           </div>
           {renderSection()}
         </main>
-        <footer style={{ textAlign: "center", padding: "0.75rem", fontSize: 11.5, color: "#94a3b8", borderTop: "1px solid #E8EEF4", background: "#fff" }}>
-          PsychAI Tutor · AI-Powered Psychiatry Education · Not for clinical use
+
+        {/* ── Professional Footer ── */}
+        <footer style={{ marginTop:"2rem", borderTop:"1px solid #E8EEF4", background:"#fff" }}>
+          <div style={{ background:"#FEF3C7", borderBottom:"1px solid #FDE68A", padding:"10px 1.5rem", display:"flex", alignItems:"flex-start", gap:10 }}>
+            <span style={{ fontSize:16, flexShrink:0, marginTop:1 }}>⚠️</span>
+            <p style={{ margin:0, fontSize:12.5, color:"#92400E", lineHeight:1.6 }}>
+              <strong>Educational Use Only.</strong> PsychAI Tutor is designed for medical education and exam preparation. It does not provide clinical diagnosis, treatment recommendations, or professional medical advice. All cases are fictional. Always consult qualified clinicians and current guidelines for patient care decisions.
+            </p>
+          </div>
+          <div style={{ padding:"1.25rem 1.5rem", display:"flex", flexWrap:"wrap", gap:"1.5rem", justifyContent:"space-between", alignItems:"flex-start" }}>
+            <div style={{ minWidth:180 }}>
+              <div style={{ fontFamily:"Georgia,serif", fontWeight:700, fontSize:17, color:ACCENT_DARK, marginBottom:4 }}>
+                <span style={{ color:"#1E5FAD" }}>Psych</span>AI Tutor
+              </div>
+              <div style={{ fontSize:11.5, color:"#64748b", lineHeight:1.6, maxWidth:220 }}>
+                AI-powered psychiatry education for medical students, junior doctors, and trainees.
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>Content Alignment</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                {["DSM-5-TR","ICD-11","NICE Guidelines","USMLE Step 1 & 2","MRCPsych","Maudsley Guidelines"].map(b => (
+                  <span key={b} style={{ background:"#EBF2FB", color:ACCENT_DARK, borderRadius:6, padding:"3px 9px", fontSize:11, fontWeight:600 }}>{b}</span>
+                ))}
+              </div>
+            </div>
+            <div style={{ fontSize:11.5, color:"#94a3b8", textAlign:"right", minWidth:160 }}>
+              <div style={{ fontWeight:600, color:"#64748b", marginBottom:4 }}>PsychAI Tutor v3.0</div>
+              <div>Powered by Claude AI (Anthropic)</div>
+              <div style={{ marginTop:4 }}>© {new Date().getFullYear()} · For educational use only</div>
+            </div>
+          </div>
         </footer>
       </div>
     </div>
