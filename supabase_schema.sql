@@ -176,3 +176,32 @@ create policy "Users can read own feedback"
 -- ═══════════════════════════════════════════════════════════════
 -- Done! All 6 tables created with RLS policies.
 -- ═══════════════════════════════════════════════════════════════
+
+
+-- ── 7. ai_usage ──────────────────────────────────────────────
+-- Tracks daily AI feature usage per user for rate limiting.
+-- One row per (user_id, feature, usage_date) combination.
+create table if not exists public.ai_usage (
+  id          uuid primary key default uuid_generate_v4(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  feature     text not null,             -- "osce" | "ddx" | "mcq" | "mse"
+  usage_date  date not null,             -- UTC date "YYYY-MM-DD"
+  count       integer not null default 0,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now(),
+  unique (user_id, feature, usage_date)  -- enforces one row per user/feature/day
+);
+
+-- Index for fast lookups by the rate-limiter
+create index if not exists ai_usage_lookup
+  on public.ai_usage (user_id, feature, usage_date);
+
+-- RLS: users can read their own rows; the server uses the service-role key to write
+alter table public.ai_usage enable row level security;
+
+create policy "Users can read own usage"
+  on public.ai_usage for select
+  using (auth.uid() = user_id);
+
+-- Service-role key bypasses RLS, so no insert/update policy needed for server writes.
+-- ═══════════════════════════════════════════════════════════════
