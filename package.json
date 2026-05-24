@@ -1,16 +1,16 @@
 {
   "name": "psychai-tutor",
-  "version": "2.0.0",
-  "description": "AI-powered psychiatry education for medical students",
+  "version": "3.0.0",
+  "description": "AI-powered psychiatry education platform for medical students",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "lint": "eslint src --ext .jsx,.js"
+    "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
