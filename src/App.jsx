@@ -6216,7 +6216,7 @@ function AboutPage() {
             <span style={{ color: "#7EC8E3" }}>●</span> PsychAI Tutor · v2.0
           </div>
           <h1 style={{ fontFamily: "Georgia,serif", fontSize: 30, fontWeight: 700, color: "#fff", marginBottom: 10, lineHeight: 1.15 }}>
-            AI-Powered Psychiatry<br />Education for Medical Students
+            AI-Powered Psychiatry<br />Education for Medical Students, Trainees & Educators
           </h1>
           <p style={{ fontSize: 15, opacity: .88, lineHeight: 1.75, maxWidth: 560, marginBottom: "1.5rem" }}>
             PsychAI Tutor is an interactive, evidence-based psychiatry learning platform built for medical students during their psychiatry clerkship. Powered by Claude AI, it brings clinical cases, OSCE simulation, and structured examination training to every student's pocket.
