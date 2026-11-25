@@ -1521,6 +1521,7 @@ function OSCESimulator({ progress, setProgress, user }) {
   const [limitError, setLimitError] = useState("");
   const [listening, setListening]       = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(true);
+  const [voiceError, setVoiceError]         = useState("");
   const [patientProfile, setPatientProfile]   = useState(null);
   const [patientVoiceOn, setPatientVoiceOn]   = useState(true);
   const [conversationLang, setConversationLang] = useState("en"); // "en" | "ar"
@@ -1539,23 +1540,69 @@ function OSCESimulator({ progress, setProgress, user }) {
 
   // ── Voice input ─────────────────────────────────────────────
   function startVoice() {
+    setVoiceError("");
+    const ua = navigator.userAgent || "";
+    // In-app browsers (WhatsApp, Telegram, Instagram, Facebook, TikTok, Snapchat, Android WebView)
+    // block the microphone / speech recognition entirely.
+    const inAppBrowser = /FBAN|FBAV|Instagram|Line\/|Snapchat|TikTok|Telegram|WhatsApp|; wv\)/i.test(ua);
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { setVoiceSupported(false); return; }
+    if (!SR || inAppBrowser) {
+      setVoiceSupported(false);
+      setVoiceError(
+        inAppBrowser
+          ? "Voice input is blocked inside this app's browser. Copy the link and open it in Chrome (Android) or Safari (iPhone). / افتح الرابط في Chrome أو Safari."
+          : "Voice input is not supported on this browser. Please type your question."
+      );
+      return;
+    }
+
+    // Stop the patient's voice first — on mobile, playing audio blocks / pollutes the mic.
+    try { audioRef.current?.pause(); } catch (_) {}
+
     const rec = new SR();
     rec.lang = conversationLangRef.current === "ar" ? "ar-SA" : "en-US";
-    console.log("[voice] recognition lang:", rec.lang);
+    rec.continuous = false;
     rec.interimResults = false;
     rec.maxAlternatives = 1;
+    let gotResult = false;
     rec.onstart  = () => setListening(true);
-    rec.onend    = () => setListening(false);
-    rec.onerror  = () => setListening(false);
+    rec.onend    = () => {
+      setListening(false);
+      if (!gotResult) {
+        setVoiceError(prev => prev || "No speech was detected. Tap the mic and speak again, or type your question.");
+      }
+    };
+    rec.onerror  = (e) => {
+      setListening(false);
+      const code = e?.error || "unknown";
+      const messages = {
+        "not-allowed": "Microphone permission is blocked. Allow the microphone for this site in your browser settings, then try again. / اسمح للموقع باستخدام المايك من إعدادات المتصفح.",
+        "service-not-allowed": "Voice input is not allowed on this browser. On iPhone, enable Dictation in Settings → General → Keyboard.",
+        "no-speech": "No speech was detected. Tap the mic and speak again.",
+        "audio-capture": "No microphone was found or it is in use by another app.",
+        "network": "Voice recognition needs an internet connection. Check your connection and try again.",
+        "language-not-supported": "This voice language is not supported on your device. Please type your question.",
+      };
+      if (code !== "aborted") {
+        setVoiceError(messages[code] || `Voice input failed (${code}). Please type your question.`);
+      }
+      console.warn("[voice] error:", code);
+    };
     rec.onresult = (e) => {
+      gotResult = true;
+      setVoiceError("");
       const transcript = e.results[0][0].transcript;
       setInput(prev => (prev ? prev + " " + transcript : transcript));
       setTimeout(() => inputRef.current?.focus(), 50);
     };
     recognitionRef.current = rec;
-    rec.start();
+    try {
+      rec.start();
+    } catch (err) {
+      setListening(false);
+      setVoiceError("Could not start the microphone. Please reload the page and try again.");
+      console.warn("[voice] start failed:", err);
+    }
   }
 
   function stopVoice() {
@@ -2619,12 +2666,17 @@ Provide structured JSON feedback ONLY (no markdown, no preamble):
                 : "Listening… speak your question, then click Stop."}
             </div>
           )}
-          {!listening && !voiceSupported && (
+          {!listening && voiceError && (
+            <div style={{ marginTop: 6, fontSize: 12, color: "#B45309", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 7, padding: "5px 10px" }}>
+              ⚠️ {voiceError}
+            </div>
+          )}
+          {!listening && !voiceError && !voiceSupported && (
             <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8" }}>
               ⚠️ Voice input is not supported on this browser. Please type your question.
             </div>
           )}
-          {!listening && voiceSupported && (
+          {!listening && voiceSupported && !voiceError && (
             <div style={{ marginTop: 5, fontSize: 11, color: "#94a3b8" }}>
               🎙️ Audio is transcribed locally by your browser. Do not share real patient information.
               {conversationLang === "ar" && (
