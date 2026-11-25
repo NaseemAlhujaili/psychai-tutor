@@ -2669,6 +2669,9 @@ Provide structured JSON feedback ONLY (no markdown, no preamble):
           {!listening && voiceError && (
             <div style={{ marginTop: 6, fontSize: 12, color: "#B45309", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 7, padding: "5px 10px" }}>
               ⚠️ {voiceError}
+              <div style={{ marginTop: 4, color: "#92400E" }}>
+                💡 Tip: tap the 🎙️ microphone on your phone's keyboard (bottom right) to dictate your question instead. / اضغط على مايك لوحة المفاتيح للإملاء الصوتي.
+              </div>
             </div>
           )}
           {!listening && !voiceError && !voiceSupported && (
@@ -2679,6 +2682,9 @@ Provide structured JSON feedback ONLY (no markdown, no preamble):
           {!listening && voiceSupported && !voiceError && (
             <div style={{ marginTop: 5, fontSize: 11, color: "#94a3b8" }}>
               🎙️ Audio is transcribed locally by your browser. Do not share real patient information.
+              <span style={{ display: "block", marginTop: 2 }}>
+                📱 On iPhone: if the mic button doesn't work, use the 🎙️ on your keyboard instead.
+              </span>
               {conversationLang === "ar" && (
                 <span style={{ marginRight: 6, fontWeight: 600, color: "#7C3AED" }}> · 🌐 محادثة بالعربية</span>
               )}
